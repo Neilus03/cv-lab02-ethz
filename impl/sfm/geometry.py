@@ -20,13 +20,16 @@ def EstimateEssentialMatrix(K, im1, im2, matches):
   kps2_matched = im2.kps[matches[:,1]]
 
   #convert to homogeneous coordinates (add a 1)
-  hom_kps1 = np.hstack((kps1_matched, np.ones((kps1_matched.shape[0], 1))))
-  hom_kps2 = np.hstack((kps2_matched, np.ones((kps2_matched.shape[0], 1))))
+  hom_kps1 = np.hstack((kps1_matched, np.ones((kps1_matched.shape[0], 1)))) # (N,3)
+  hom_kps2 = np.hstack((kps2_matched, np.ones((kps2_matched.shape[0], 1)))) # (N,3)
 
   # Normalize by multiplying with the inverse of the intrinsic matrix K
-  normalized_kps1 = (np.linalg.inv(K) @ hom_kps1.T).T
-  normalized_kps2 = (np.linalg.inv(K) @ hom_kps2.T).T
+  normalized_kps1 = (np.linalg.inv(K) @ hom_kps1.T).T  # (N,3)
+  normalized_kps2 = (np.linalg.inv(K) @ hom_kps2.T).T  # (N,3)
 
+  #Set last coord to 1 for numeric stability
+  normalized_kps1 = normalized_kps1 / normalized_kps1[:,[2]]
+  normalized_kps2 = normalized_kps2 / normalized_kps2[:,[2]]
 
   # Assemble constraint matrix as equation 1
   # For each pair of matched points p1 and p2, create a row
@@ -39,18 +42,17 @@ def EstimateEssentialMatrix(K, im1, im2, matches):
     # For each match (p1, p2), the constraint is p2^T * E * p1 = 0.
     # This can be rewritten as a linear equation A * vec(E) = 0.
     # The row of A is derivedd from the elements of p1 and p2.
-    p1 = normalized_kps1[i]
-    p2 = normalized_kps2[i]
 
     #compute the kronecker product p2.T ⊗ p1.T
-    constraint_matrix[i] = constraint_matrix[i] = np.kron(p2,p1)
+    constraint_matrix[i] = np.kron(normalized_kps2[i], normalized_kps1[i])
+
   # Solve for the nullspace of the constraint matrix
   _, _, vh = np.linalg.svd(constraint_matrix)
-  vectorized_E_hat = vh[-1,:]
+  vectorized_E_hat = vh[-1]
 
   # TODO
   # Reshape the vectorized matrix to it's proper shape again (from (9,1) to (3,3))
-  E_hat = np.reshape(vectorized_E_hat, (3, 3)).T
+  E_hat = vectorized_E_hat.reshape(3,3, order='F')
 
   # TODO
   # We need to fulfill the internal constraints of E
@@ -66,11 +68,22 @@ def EstimateEssentialMatrix(K, im1, im2, matches):
   # This is just a quick test that should tell you if your estimated matrix is not correct
   # It might fail if you estimated E in the other direction (i.e. kp2' * E * kp1)
   # You can adapt it to your assumptions.
-  for i in range(matches.shape[0]):
-    kp1 = normalized_kps1[i, :]
-    kp2 = normalized_kps2[i, :]
+  # Vectorized algebraic residual |x2^T E x1| for ALL points
+  x1n = normalized_kps1   # (N,3)
+  x2n = normalized_kps2   # (N,3)
 
-    assert(abs(kp2.transpose() @ E @ kp1) < 0.01)
+  # Residual for x2^T E x1
+  res21 = np.abs(np.sum(x2n * ((E @ x1n.T).T), axis=1))
+
+  # Also compute the opposite convention; if it's better, transpose E
+  res12 = np.abs(np.sum(x1n * ((E @ x2n.T).T), axis=1))
+  if np.median(res12) < np.median(res21):
+      E = E.T
+      res21 = np.abs(np.sum(x2n * ((E @ x1n.T).T), axis=1))
+
+  # Assert for ALL points; 1e-2 is fine for algebraic residual after K^{-1} normalization
+  assert np.all(res21 < 1e-2), f"max algebraic residual {res21.max():.3e}"
+
 
   return E
 
@@ -189,6 +202,7 @@ def EstimateImagePose(points2D, points3D, K):
   # We use points in the normalized image plane.
   # This removes the 'K' factor from the projection matrix.
   # We don't normalize the 3D points here to keep the code simpler.
+
   pass
   #normalized_points2D =
 

@@ -116,47 +116,6 @@ def main():
   print(f"Final number of 3D points after filtering: {points3D.shape[0]}")
 
 
-  # =================== START OF TEMPORARY DEBUGGING BLOCK ===================
-  print(f"Initialization complete. Found {points3D.shape[0]} 3D points.")
-
-  # Get poses and keypoints
-  R1, t1 = e_im1.Pose()
-  R2, t2 = e_im2.Pose()
-  kps1 = e_im1.kps[im1_corrs] # Get the 2D keypoints that correspond to the 3D points
-  kps2 = e_im2.kps[im2_corrs]
-
-  # Reproject onto the first image
-  P1 = K @ np.hstack((R1, t1.reshape(3,1)))
-  points3D_hom = np.hstack((points3D, np.ones((points3D.shape[0], 1))))
-  reprojected_kps1_hom = (P1 @ points3D_hom.T).T
-  reprojected_kps1 = reprojected_kps1_hom[:, :2] / reprojected_kps1_hom[:, [2]]
-
-  # Reproject onto the second image
-  P2 = K @ np.hstack((R2, t2.reshape(3,1)))
-  reprojected_kps2_hom = (P2 @ points3D_hom.T).T
-  reprojected_kps2 = reprojected_kps2_hom[:, :2] / reprojected_kps2_hom[:, [2]]
-
-  # Visualize for the first image
-  plt.figure()
-  plt.imshow(e_im1.image)
-  plt.scatter(kps1[:, 0], kps1[:, 1], c='b', marker='o', label='Original Keypoints')
-  plt.scatter(reprojected_kps1[:, 0], reprojected_kps1[:, 1], c='r', marker='x', label='Reprojected 3D Points')
-  plt.title(f'Reprojection on {e_im1.name}')
-  plt.legend()
-  plt.show()
-
-  # Visualize for the second image
-  plt.figure()
-  plt.imshow(e_im2.image)
-  plt.scatter(kps2[:, 0], kps2[:, 1], c='b', marker='o', label='Original Keypoints')
-  plt.scatter(reprojected_kps2[:, 0], reprojected_kps2[:, 1], c='r', marker='x', label='Reprojected 3D Points')
-  plt.title(f'Reprojection on {e_im2.name}')
-  plt.legend()
-  plt.show()
-  # ==================== END OF TEMPORARY DEBUGGING BLOCK ====================
-
-
-
   """# Add the new 2D-3D correspondences to the images
   e_im1.Add3DCorrs(im1_corrs, list(range(points3D.shape[0])))
   e_im2.Add3DCorrs(im2_corrs, list(range(points3D.shape[0])))
@@ -211,8 +170,7 @@ def main():
 
   # Delay termination of the program until the figures are closed
   # Otherwise all figure windows will be killed with the program
-  plt.show(block=True)
-"""
+  plt.show(block=True)"""
 
 if __name__ == '__main__':
   main()
