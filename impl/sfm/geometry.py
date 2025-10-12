@@ -43,14 +43,14 @@ def EstimateEssentialMatrix(K, im1, im2, matches):
     p2 = normalized_kps2[i]
 
     #compute the kronecker product p2.T ⊗ p1.T
-    constraint_matrix[i] = constraint_matrix[i] = np.kron(p1, p2)
+    constraint_matrix[i] = constraint_matrix[i] = np.kron(p2,p1)
   # Solve for the nullspace of the constraint matrix
   _, _, vh = np.linalg.svd(constraint_matrix)
   vectorized_E_hat = vh[-1,:]
 
   # TODO
   # Reshape the vectorized matrix to it's proper shape again (from (9,1) to (3,3))
-  E_hat = np.reshape(vectorized_E_hat, (3, 3))
+  E_hat = np.reshape(vectorized_E_hat, (3, 3)).T
 
   # TODO
   # We need to fulfill the internal constraints of E
@@ -70,7 +70,7 @@ def EstimateEssentialMatrix(K, im1, im2, matches):
     kp1 = normalized_kps1[i, :]
     kp2 = normalized_kps2[i, :]
 
-    assert(abs(kp1.transpose() @ E @ kp2) < 0.01)
+    assert(abs(kp2.transpose() @ E @ kp1) < 0.01)
 
   return E
 
