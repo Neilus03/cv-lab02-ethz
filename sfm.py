@@ -172,5 +172,6 @@ def main():
   # Otherwise all figure windows will be killed with the program
   plt.show(block=True)
 
+
 if __name__ == '__main__':
   main()

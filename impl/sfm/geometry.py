@@ -216,6 +216,11 @@ def EstimateImagePose(points2D, points3D, K):
 
   constraint_matrix = BuildProjectionConstraintMatrix(normalized_points2D, points3D)
 
+  ### DEBUG ###
+  rank = np.linalg.matrix_rank(constraint_matrix)
+  print(f"[Pose] N={N}, A.shape={constraint_matrix.shape}, rank={rank}")
+  ### DEBUG ###
+
   # We don't use optimization here since we would need to make sure to only optimize on the se(3) manifold
   # (the manifold of proper 3D poses). This is a bit too complicated right now.
   # Just DLT should give good enough results for this dataset.
@@ -238,6 +243,29 @@ def EstimateImagePose(points2D, points3D, K):
 
   t = -R @ (C[:3] / C[3])
 
+  ### DEBUG ###
+
+  # Report rotation quality
+  detR = np.linalg.det(R)
+  ortho_err = np.linalg.norm(R.T @ R - np.eye(3))
+  print(f"[Pose] det(R)={detR:.6f}, ||R^T R - I||={ortho_err:.2e}")
+
+  # Reprojection error in pixels
+  Pfull = K @ np.hstack([R, t.reshape(3,1)])
+  X_h = np.hstack([points3D, np.ones((points3D.shape[0],1))])
+  proj_h = (Pfull @ X_h.T).T
+  proj = proj_h[:, :2] / proj_h[:, [2]]
+  err = np.linalg.norm(proj - points2D, axis=1)
+  print(f"[Pose] reproj px: mean={err.mean():.3f}, med={np.median(err):.3f}, p95={np.percentile(err,95):.3f}, max={err.max():.3f}")
+
+  # In-front check
+  X_cam = (R @ points3D.T + t[:, None]).T
+  infront_ratio = np.mean(X_cam[:,2] > 0)
+  print(f"[Pose] in-front ratio={infront_ratio:.3f}")
+  assert infront_ratio > 0.6, f"[Pose] too few points in front: {infront_ratio:.3f}"
+
+  ### DEBUG ###
+
   return R, t
 
 def TriangulateImage(K, image_name, images, registered_images, matches):
@@ -258,9 +286,17 @@ def TriangulateImage(K, image_name, images, registered_images, matches):
 
   running_offset = 0 #the count of points collected so far in this call
 
+  ### DEBUG ###
+  print(f"[TriImg] new={image_name}, against {len(registered_images)} registered")
+  ### DEBUG ###
+
   for reg_name in registered_images:
      # Get matches in the right order for (new image, registered image)
     pair = GetPairMatches(image_name, reg_name, matches)
+
+    ### DEBUG ###
+    print(f"[TriImg] pair {image_name} ↔ {reg_name}: matches={pair.shape[0]}", end="")
+    ### DEBUG ###
 
     #triangulate the points for this pair
     pts, im_corrs, im_reg_corrs = TriangulatePoints(K, image, images[reg_name], pair)
@@ -289,6 +325,21 @@ def TriangulateImage(K, image_name, images, registered_images, matches):
     points3D = np.zeros((0, 3))
   else:
     points3D = np.vstack(points3D_chunks)
+
+  ### DEBUG ###
+  total_new = points3D.shape[0]
+  print(f"[TriImg] total new 3D points for {image_name}: {total_new}")
+  got_new_corrs = len(corrs.get(image_name, []))
+  print(f"[TriImg] corrs[{image_name}] entries={got_new_corrs}")
+  if total_new > 0:
+    # Each new point must appear exactly once for the new image
+    assert got_new_corrs == total_new, f"[TriImg] expected {total_new} corrs for {image_name}, got {got_new_corrs}"
+  # Summaries per registered image
+  for rn in registered_images:
+    if rn in corrs:
+      print(f"[TriImg] corrs[{rn}] entries={len(corrs[rn])}")
+
+  ### DEBUG ###
 
   return points3D, corrs
 

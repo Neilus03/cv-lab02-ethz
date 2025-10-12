@@ -22,7 +22,7 @@ def Find2D3DCorrespondences(image_name, images, matches, registered_images):
   _, unique_idxs = np.unique(np.array(p3D_idxs), return_index=True)
   image_kp_idxs = np.array(image_kp_idxs)[unique_idxs].tolist()
   p3D_idxs = np.array(p3D_idxs)[unique_idxs].tolist()
-  
+
   return image_kp_idxs, p3D_idxs
 
 
@@ -40,9 +40,34 @@ def UpdateReconstructionState(new_points3D, corrs, points3D, images):
   # TODO
   # Add the new points to the set of reconstruction points and add the correspondences to the images.
   # Be careful to update the point indices to the global indices in the `points3D` array.
-  points3D = np.append(points3D, new_points3D, 0)
 
-  for im_name in corrs:
-    images[im_name].Add3DCorrs(...)
+  M = new_points3D.shape[0]
+  if M == 0:
+    print("[Update] No new points to add.")
+    return points3D, images
+
+  offset = points3D.shape[0]
+
+  # Append new points
+  points3D = np.vstack([points3D, new_points3D])
+
+  ### DEBUG ###
+  print(f"[Update] added {M} points (global size: {offset} -> {points3D.shape[0]})")
+  ### DEBUG ###
+
+  #Add 2D–3D correspondences to each image (convert local -> global indices)
+  for im_name, pairs in corrs.items():
+    if not pairs:
+      continue
+    kp_idxs, local_idxs = zip(*pairs)
+    kp_idxs = list(kp_idxs)
+
+    global_p3D_idxs = [offset + local_idx for local_idx in local_idxs]
+
+    images[im_name].Add3DCorrs(kp_idxs, global_p3D_idxs)
+
+    ### DEBUG ###
+    print(f"[Update] {im_name}: added {len(kp_idxs)} 2D-3D corrs")
+    ### DEBUG ###
 
   return points3D, images
