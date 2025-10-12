@@ -116,7 +116,7 @@ def main():
   print(f"Final number of 3D points after filtering: {points3D.shape[0]}")
 
 
-  """# Add the new 2D-3D correspondences to the images
+  # Add the new 2D-3D correspondences to the images
   e_im1.Add3DCorrs(im1_corrs, list(range(points3D.shape[0])))
   e_im2.Add3DCorrs(im2_corrs, list(range(points3D.shape[0])))
 
@@ -170,7 +170,7 @@ def main():
 
   # Delay termination of the program until the figures are closed
   # Otherwise all figure windows will be killed with the program
-  plt.show(block=True)"""
+  plt.show(block=True)
 
 if __name__ == '__main__':
   main()

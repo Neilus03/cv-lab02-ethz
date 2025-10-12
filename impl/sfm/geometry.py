@@ -203,8 +203,16 @@ def EstimateImagePose(points2D, points3D, K):
   # This removes the 'K' factor from the projection matrix.
   # We don't normalize the 3D points here to keep the code simpler.
 
-  pass
-  #normalized_points2D =
+  #assert that we have the same number of points in 2d and 3d:
+  assert points2D.shape[0] == points3D.shape[0]
+
+  #get number of 2d points
+  N = points2D.shape[0]
+  ones = np.ones((N,1)) #
+
+  pts2_h = np.hstack([points2D, ones]) # (N,3) #extend to 3rd dim
+  pts2_n = (np.linalg.inv(K) @ pts2_h.T).T # normalize by K
+  normalized_points2D = pts2_n[:, :2] / pts2_n[:, [2]]   # drop homogeneous scale
 
   constraint_matrix = BuildProjectionConstraintMatrix(normalized_points2D, points3D)
 
@@ -224,6 +232,7 @@ def EstimateImagePose(points2D, points3D, K):
   if np.linalg.det(R) < 0:
     R *= -1
 
+  # Camera center from P's nullspace, then t = -R * C
   _, _, vh = np.linalg.svd(P)
   C = np.copy(vh[-1,:])
 
@@ -236,12 +245,50 @@ def TriangulateImage(K, image_name, images, registered_images, matches):
   # TODO
   # Loop over all registered images and triangulate new points with the new image.
   # Make sure to keep track of all new 2D-3D correspondences, also for the registered images
-  pass
+
+  #get new image
   image = images[image_name]
-  points3D = np.zeros((0,3))
+
+  #Collect 3D points in chunks, then stack at the end
+  points3D_chunks = []  # list of (Pi, 3) arrays
+
   # You can save the correspondences for each image in a dict and refer to the `local` new point indices here.
   # Afterwards you just add the index offset before adding the correspondences to the images.
-  corrs = {}
+  corrs = {} # maps image_name -> list of (kp_idx_in_that_image, local_p3D_idx)
+
+  running_offset = 0 #the count of points collected so far in this call
+
+  for reg_name in registered_images:
+     # Get matches in the right order for (new image, registered image)
+    pair = GetPairMatches(image_name, reg_name, matches)
+
+    #triangulate the points for this pair
+    pts, im_corrs, im_reg_corrs = TriangulatePoints(K, image, images[reg_name], pair)
+
+    #if no points yet, continue
+    if pts.shape[0] == 0:
+      continue
+
+    # Local indices for this batch in the final stacked points array
+    local_idxs = np.arange(pts.shape[0]) + running_offset
+    running_offset += pts.shape[0]
+
+    #store 3d chunk
+    points3D_chunks.append(pts)
+
+    # Record correspondences for the new image
+    corrs.setdefault(image_name, [])
+    corrs[image_name].extend(list(zip(im_corrs.tolist(), local_idxs.tolist())))
+
+    # Record correspondences for the paired registered image
+    corrs.setdefault(reg_name, [])
+    corrs[reg_name].extend(list(zip(im_reg_corrs.tolist(), local_idxs.tolist())))
+
+    # Stack all newly created points
+  if len(points3D_chunks) == 0:
+    points3D = np.zeros((0, 3))
+  else:
+    points3D = np.vstack(points3D_chunks)
 
   return points3D, corrs
 
