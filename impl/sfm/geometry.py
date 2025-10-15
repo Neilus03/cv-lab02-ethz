@@ -144,6 +144,18 @@ def TriangulatePoints(K, im1, im2, matches):
 
   points3D = np.zeros((num_new_matches, 3))
 
+  # helper for reprojection error
+  def _reproj_err(P, X, kp):
+    x = P @ np.r_[X, 1.0]
+    x = x[:2] / x[2]
+    return np.linalg.norm(x - kp)
+
+  # precompute K^{-1} once
+  Kinv = np.linalg.inv(K)
+
+  # keep mask to drop weak/incorrect triangulations
+  keep_mask = np.ones(num_new_matches, dtype=bool)
+
   for i in range(num_new_matches):
 
     kp1 = im1.kps[new_matches[i, 0], :]
@@ -159,12 +171,32 @@ def TriangulatePoints(K, im1, im2, matches):
 
     _, _, vh = np.linalg.svd(A)
     homogeneous_point = vh[-1]
-    points3D[i] = homogeneous_point[:-1] / homogeneous_point[-1]
+    X = homogeneous_point[:-1] / homogeneous_point[-1]
+    points3D[i] = X
+
+    # parallax gating (angle between view rays in normalized coords)
+    r1 = Kinv @ np.array([kp1[0], kp1[1], 1.0])
+    r2 = Kinv @ np.array([kp2[0], kp2[1], 1.0])
+    r1 = r1 / np.linalg.norm(r1)
+    r2 = r2 / np.linalg.norm(r2)
+    if np.dot(r1, r2) > np.cos(np.deg2rad(2.0)):  # < 2 degrees
+      keep_mask[i] = False
+      continue
+
+    # reprojection gating in both images (pixels)
+    if (_reproj_err(P1, X, kp1) > 2.5) or (_reproj_err(P2, X, kp2) > 2.5):
+      keep_mask[i] = False
+      continue
 
 
   # We need to keep track of the correspondences between image points and 3D points
   im1_corrs = new_matches[:,0]
   im2_corrs = new_matches[:,1]
+
+  # apply gating before cheirality
+  im1_corrs = im1_corrs[keep_mask]
+  im2_corrs = im2_corrs[keep_mask]
+  points3D = points3D[keep_mask]
 
   # TODO
   # Filter points behind the cameras by transforming them into each camera space and checking the depth (Z)
@@ -216,10 +248,10 @@ def EstimateImagePose(points2D, points3D, K):
 
   constraint_matrix = BuildProjectionConstraintMatrix(normalized_points2D, points3D)
 
-  ### DEBUG ###
-  rank = np.linalg.matrix_rank(constraint_matrix)
-  print(f"[Pose] N={N}, A.shape={constraint_matrix.shape}, rank={rank}")
-  ### DEBUG ###
+  # ### DEBUG ###
+  # rank = np.linalg.matrix_rank(constraint_matrix)
+  # print(f"[Pose] N={N}, A.shape={constraint_matrix.shape}, rank={rank}")
+  # ### DEBUG ###
 
   # We don't use optimization here since we would need to make sure to only optimize on the se(3) manifold
   # (the manifold of proper 3D poses). This is a bit too complicated right now.
@@ -243,28 +275,28 @@ def EstimateImagePose(points2D, points3D, K):
 
   t = -R @ (C[:3] / C[3])
 
-  ### DEBUG ###
+  # ### DEBUG ###
 
-  # Report rotation quality
-  detR = np.linalg.det(R)
-  ortho_err = np.linalg.norm(R.T @ R - np.eye(3))
-  print(f"[Pose] det(R)={detR:.6f}, ||R^T R - I||={ortho_err:.2e}")
+  # # Report rotation quality
+  # detR = np.linalg.det(R)
+  # ortho_err = np.linalg.norm(R.T @ R - np.eye(3))
+  # print(f"[Pose] det(R)={detR:.6f}, ||R^T R - I||={ortho_err:.2e}")
 
-  # Reprojection error in pixels
-  Pfull = K @ np.hstack([R, t.reshape(3,1)])
-  X_h = np.hstack([points3D, np.ones((points3D.shape[0],1))])
-  proj_h = (Pfull @ X_h.T).T
-  proj = proj_h[:, :2] / proj_h[:, [2]]
-  err = np.linalg.norm(proj - points2D, axis=1)
-  print(f"[Pose] reproj px: mean={err.mean():.3f}, med={np.median(err):.3f}, p95={np.percentile(err,95):.3f}, max={err.max():.3f}")
+  # # Reprojection error in pixels
+  # Pfull = K @ np.hstack([R, t.reshape(3,1)])
+  # X_h = np.hstack([points3D, np.ones((points3D.shape[0],1))])
+  # proj_h = (Pfull @ X_h.T).T
+  # proj = proj_h[:, :2] / proj_h[:, [2]]
+  # err = np.linalg.norm(proj - points2D, axis=1)
+  # print(f"[Pose] reproj px: mean={err.mean():.3f}, med={np.median(err):.3f}, p95={np.percentile(err,95):.3f}, max={err.max():.3f}")
 
-  # In-front check
-  X_cam = (R @ points3D.T + t[:, None]).T
-  infront_ratio = np.mean(X_cam[:,2] > 0)
-  print(f"[Pose] in-front ratio={infront_ratio:.3f}")
-  assert infront_ratio > 0.6, f"[Pose] too few points in front: {infront_ratio:.3f}"
+  # # In-front check
+  # X_cam = (R @ points3D.T + t[:, None]).T
+  # infront_ratio = np.mean(X_cam[:,2] > 0)
+  # print(f"[Pose] in-front ratio={infront_ratio:.3f}")
+  # assert infront_ratio > 0.6, f"[Pose] too few points in front: {infront_ratio:.3f}"
 
-  ### DEBUG ###
+  # ### DEBUG ###
 
   return R, t
 
@@ -280,23 +312,22 @@ def TriangulateImage(K, image_name, images, registered_images, matches):
   #Collect 3D points in chunks, then stack at the end
   points3D_chunks = []  # list of (Pi, 3) arrays
 
-  # You can save the correspondences for each image in a dict and refer to the `local` new point indices here.
-  # Afterwards you just add the index offset before adding the correspondences to the images.
+
   corrs = {} # maps image_name -> list of (kp_idx_in_that_image, local_p3D_idx)
 
   running_offset = 0 #the count of points collected so far in this call
 
-  ### DEBUG ###
-  print(f"[TriImg] new={image_name}, against {len(registered_images)} registered")
-  ### DEBUG ###
+  # ### DEBUG ###
+  # print(f"[TriImg] new={image_name}, against {len(registered_images)} registered")
+  # ### DEBUG ###
 
   for reg_name in registered_images:
      # Get matches in the right order for (new image, registered image)
     pair = GetPairMatches(image_name, reg_name, matches)
 
-    ### DEBUG ###
-    print(f"[TriImg] pair {image_name} ↔ {reg_name}: matches={pair.shape[0]}", end="")
-    ### DEBUG ###
+    # ### DEBUG ###
+    # print(f"[TriImg] pair {image_name} ↔ {reg_name}: matches={pair.shape[0]}", end="")
+    # ### DEBUG ###
 
     #triangulate the points for this pair
     pts, im_corrs, im_reg_corrs = TriangulatePoints(K, image, images[reg_name], pair)
@@ -320,26 +351,12 @@ def TriangulateImage(K, image_name, images, registered_images, matches):
     corrs.setdefault(reg_name, [])
     corrs[reg_name].extend(list(zip(im_reg_corrs.tolist(), local_idxs.tolist())))
 
-    # Stack all newly created points
+  # Stack all newly created points
   if len(points3D_chunks) == 0:
     points3D = np.zeros((0, 3))
   else:
     points3D = np.vstack(points3D_chunks)
 
-  ### DEBUG ###
-  total_new = points3D.shape[0]
-  print(f"[TriImg] total new 3D points for {image_name}: {total_new}")
-  got_new_corrs = len(corrs.get(image_name, []))
-  print(f"[TriImg] corrs[{image_name}] entries={got_new_corrs}")
-  if total_new > 0:
-    # Each new point must appear exactly once for the new image
-    assert got_new_corrs == total_new, f"[TriImg] expected {total_new} corrs for {image_name}, got {got_new_corrs}"
-  # Summaries per registered image
-  for rn in registered_images:
-    if rn in corrs:
-      print(f"[TriImg] corrs[{rn}] entries={len(corrs[rn])}")
 
-  ### DEBUG ###
 
   return points3D, corrs
-

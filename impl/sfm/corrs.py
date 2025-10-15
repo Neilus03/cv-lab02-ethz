@@ -51,9 +51,9 @@ def UpdateReconstructionState(new_points3D, corrs, points3D, images):
   # Append new points
   points3D = np.vstack([points3D, new_points3D])
 
-  ### DEBUG ###
-  print(f"[Update] added {M} points (global size: {offset} -> {points3D.shape[0]})")
-  ### DEBUG ###
+  # ### DEBUG ###
+  # print(f"[Update] added {M} points (global size: {offset} -> {points3D.shape[0]})")
+  # ### DEBUG ###
 
   #Add 2D–3D correspondences to each image (convert local -> global indices)
   for im_name, pairs in corrs.items():
@@ -66,8 +66,8 @@ def UpdateReconstructionState(new_points3D, corrs, points3D, images):
 
     images[im_name].Add3DCorrs(kp_idxs, global_p3D_idxs)
 
-    ### DEBUG ###
-    print(f"[Update] {im_name}: added {len(kp_idxs)} 2D-3D corrs")
-    ### DEBUG ###
+    # ### DEBUG ###
+    # print(f"[Update] {im_name}: added {len(kp_idxs)} 2D-3D corrs")
+    # ### DEBUG ###
 
   return points3D, images

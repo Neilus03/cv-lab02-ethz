@@ -46,11 +46,11 @@ def main():
   # You can comment these lines once you verified that the images are loaded correctly
 
   # Show the images
-  #PlotImages(images)
+  PlotImages(images)
 
   # Show the keypoints
-  #for image_name in image_names:
-  #  PlotWithKeypoints(images[image_name])
+  for image_name in image_names:
+    PlotWithKeypoints(images[image_name])
 
   # Show the feature matches
   """for image_pair in itertools.combinations(image_names, 2):
@@ -112,6 +112,46 @@ def main():
 
   # Triangulate initial points
   points3D, im1_corrs, im2_corrs = TriangulatePoints(K, e_im1, e_im2, e_matches)
+
+  # --- FILTER just for the initial pair ---
+  R1, t1 = e_im1.Pose(); R2, t2 = e_im2.Pose()
+  P1 = K @ np.append(R1, np.expand_dims(t1, 1), 1)
+  P2 = K @ np.append(R2, np.expand_dims(t2, 1), 1)
+
+  def reproj_err(P, X, kp):
+      x = P @ np.r_[X, 1.0]
+      x = x[:2] / x[2]
+      return np.linalg.norm(x - kp)
+
+  kp1_all = e_im1.kps[im1_corrs]
+  kp2_all = e_im2.kps[im2_corrs]
+
+  # cheirality (with epsilon), reprojection, and parallax gates
+  eps = 1e-9
+  Xc1 = (R1 @ points3D.T + t1[:, None]).T
+  Xc2 = (R2 @ points3D.T + t2[:, None]).T
+  mask_depth = (Xc1[:,2] > eps) & (Xc2[:,2] > eps)
+
+  # reprojection error in BOTH images (in pixels)
+  err1 = np.array([reproj_err(P1, X, kp) for X, kp in zip(points3D, kp1_all)])
+  err2 = np.array([reproj_err(P2, X, kp) for X, kp in zip(points3D, kp2_all)])
+  mask_reproj = (err1 < 2.5) & (err2 < 2.5)  # tighten if needed
+
+  # parallax between rays (>= 2 degrees)
+  Kinv = np.linalg.inv(K)
+  r1 = Kinv @ np.c_[kp1_all, np.ones(len(kp1_all))].T
+  r2 = Kinv @ np.c_[kp2_all, np.ones(len(kp2_all))].T
+  r1 /= np.linalg.norm(r1, axis=0, keepdims=True)
+  r2 /= np.linalg.norm(r2, axis=0, keepdims=True)
+  cosang = np.sum(r1 * r2, axis=0)
+  mask_parallax = cosang < np.cos(np.deg2rad(2.0))
+
+  keep = mask_depth & mask_reproj & mask_parallax
+
+  points3D = points3D[keep]
+  im1_corrs = im1_corrs[keep]
+  im2_corrs = im2_corrs[keep]
+  # --- end FILTER ---
 
   print(f"Final number of 3D points after filtering: {points3D.shape[0]}")
 
